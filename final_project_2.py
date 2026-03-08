@@ -73,21 +73,6 @@ eigvals_sorted = sorted(eigvals, key=lambda x: abs(np.imag(x)), reverse=True)
 sp_eigs = np.array([eigvals_sorted[0], eigvals_sorted[1]])
 lp_eigs = np.array([eigvals_sorted[2], eigvals_sorted[3]])
 
-# Eigenvalue plot
-plt.figure(figsize=(8, 6))
-plt.scatter(np.real(sp_eigs), np.imag(sp_eigs), marker='x', c='black', s=80, label='Short-Period Mode')
-plt.scatter(np.real(lp_eigs), np.imag(lp_eigs), marker='x', c='blue', s=80, label='Phugoid Mode')
-
-plt.axhline(0, color='black', linewidth=0.5)
-plt.axvline(0, color='black', linewidth=0.5)
-plt.xlabel("Real Axis")
-plt.ylabel("Imaginary Axis")
-plt.title("Eigenvalues of XC-142A Longitudinal System")
-plt.grid(True)
-plt.legend()
-plt.tight_layout()
-plt.show()
-
 # Modal properties
 def modal_properties(eigs: np.ndarray):
     coeffs = np.poly(eigs)
