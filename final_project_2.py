@@ -6,45 +6,80 @@ np.set_printoptions(suppress=True, precision=6)
 
 # ============================================================
 # EAE 129 Final Project
-# XC-142A Longitudinal Dynamics
+# Fighter Aircraft Longitudinal Dynamics
+# Sea level, Mach 0.257
 # ============================================================
 
-# --------------------------------------------
-# region flight condition and aircraft data 
-# --------------------------------------------
+# -----------------------------
+# Given flight condition / data
+# -----------------------------
+u0 = 286.92          # trim flight speed [ft/s]
+g = 32.174           # gravitational acceleration [ft/s^2]
+cbar = 9.55          # mean aerodynamic chord [ft]
+Iy = 58611.0         # pitch-axis inertia [slug-ft^2]
+W = 16300.0          # weight [lb]
+m = W / g            # mass [slug]
+rho = 0.002377       # sea-level air density [slug/ft^3]
 
-u0 = 202.56          # trim flight speed [ft/s]
-g = 32.2             # gravitational acceleration [ft/s^2]
+Q = 0.5 * rho * u0**2  # dynamic pressure [lb/ft^2]
 
-# Stability derivatives from project statement
-Xu = -0.22
-Xw = 0.06
-Zu = -0.15
-Zw = -0.85
+S = 196.1            # wing reference area [ft^2]
+S_t = 50.0           # tail area [ft^2]
+tau_e = 0.5          # elevator efficiency factor
+eta_t = 0.95         # dynamic pressure ratio at tail
 
-Mu = 0.01
-Mw = -0.0095
-Mq = -0.89
-Mw_dot = -0.00127
+# -----------------------------
+# Aerodynamic coefficients
+# -----------------------------
+C_D0 = 0.263
+C_Da = 0.45
+C_Du = 0.0
 
-# Control derivatives
-Xde = 0.12
-Zde = 4.58
-Mde = 1.195
+C_L0 = 0.735
+C_Lu = 0.0
+C_La = 3.44
+C_La_t = 3.0
 
-#fourth-order longitudinal state matrix
+C_ma = -0.64
+C_mu = 0.0
+C_mq = -5.8
+C_ma_dot = -1.6
+C_mde = -1.46
+
+# Elevator force derivative
+C_Zde = -C_La_t * tau_e * eta_t * (S_t / S)
+
+# -----------------------------
+# Dimensional stability derivatives
+# -----------------------------
+X_u = -(C_Du + 2 * C_D0) * (Q * S) / (m * u0)
+X_w = -((C_Da - C_L0) * Q * S) / (m * u0)
+X_de = 0.0
+
+Z_u = -(C_Lu + 2 * C_L0) * (Q * S) / (m * u0)
+Z_w = -((C_La + C_D0) * Q * S) / (m * u0)
+Z_de = -C_Zde * Q * S / m
+
+M_u = C_mu * (Q * S * cbar) / (Iy * u0)
+M_w = C_ma * (Q * S * cbar) / (Iy * u0)
+M_w_dot = C_ma_dot * (cbar / (2 * u0)) * (Q * S * cbar) / (Iy * u0)
+M_q = C_mq * (Q * S * cbar**2) / (Iy * 2 * u0)
+M_de = C_mde * (Q * S * cbar) / Iy
+
+# -----------------------------
+# Full fourth-order model
+# -----------------------------
 A = np.array([
-    [Xu, Xw, 0.0, -g],
-    [Zu, Zw, u0, 0.0],
-    [Mu + Mw_dot * Zu, Mw + Mw_dot * Zw, Mq + Mw_dot * u0, 0.0],
+    [X_u, X_w, 0.0, -g],
+    [Z_u, Z_w, u0, 0.0],
+    [M_u + M_w_dot * Z_u, M_w + M_w_dot * Z_w, M_q + M_w_dot * u0, 0.0],
     [0.0, 0.0, 1.0, 0.0]
 ], dtype=float)
 
-#control matrix
 B = np.array([
-    [Xde],
-    [Zde],
-    [Mde + Mw_dot * Zde],
+    [X_de],
+    [Z_de],
+    [M_de + M_w_dot * Z_de],
     [0.0]
 ], dtype=float)
 
@@ -53,221 +88,129 @@ print(A)
 print("\nB matrix:")
 print(B)
 
-# endregion
+# -----------------------------
+# Modal analysis
+# -----------------------------
+def modal_properties(pair):
+    sigma = np.real(pair[0])
+    wd = abs(np.imag(pair[0]))
+    wn = np.sqrt(sigma**2 + wd**2)
+    zeta = -sigma / wn
+    tau = -1.0 / sigma
+    return wn, wd, zeta, tau
 
-
-# -----------------------------------------
-# region eigenvalues and modal properties
-# -----------------------------------------
-
-C = np.eye(4)
-D = np.zeros((4, 1))
-
-ss_full = sig.StateSpace(A, B, C, D)
-
-eigvals, _ = np.linalg.eig(A)
-
-# magnitude of imaginary part:
-eigvals_sorted = sorted(eigvals, key=lambda x: abs(np.imag(x)), reverse=True)
+eigvals = np.linalg.eigvals(A)
+eigvals_sorted = sorted(eigvals, key=lambda z: abs(np.imag(z)), reverse=True)
 
 sp_eigs = np.array([eigvals_sorted[0], eigvals_sorted[1]])
-lp_eigs = np.array([eigvals_sorted[2], eigvals_sorted[3]])
+ph_eigs = np.array([eigvals_sorted[2], eigvals_sorted[3]])
 
-# Modal properties
-def modal_properties(eigs: np.ndarray):
-    coeffs = np.poly(eigs)
-    nat_freq = np.sqrt(coeffs[2])
-    damp_ratio = coeffs[1] / (2 * nat_freq)
-    damp_freq = abs(np.imag(eigs[0]))
-    time_const = -1 / np.real(eigs[0])
-    return coeffs, nat_freq, damp_ratio, damp_freq, time_const
+sp_wn, sp_wd, sp_zeta, sp_tau = modal_properties(sp_eigs)
+ph_wn, ph_wd, ph_zeta, ph_tau = modal_properties(ph_eigs)
 
-sp_coeffs, sp_natfreq, sp_dampratio, sp_dampfreq, sp_timeconst = modal_properties(sp_eigs)
-lp_coeffs, lp_natfreq, lp_dampratio, lp_dampfreq, lp_timeconst = modal_properties(lp_eigs)
+print("\nShort-period eigenvalues:", sp_eigs)
+print(f"Short-period: wn={sp_wn:.4f}, wd={sp_wd:.4f}, zeta={sp_zeta:.4f}, tau={sp_tau:.4f}")
 
-# endregion
+print("\nPhugoid eigenvalues:", ph_eigs)
+print(f"Phugoid: wn={ph_wn:.4f}, wd={ph_wd:.4f}, zeta={ph_zeta:.4f}, tau={ph_tau:.4f}")
 
-
-# ------------------------------------------------------------
-# region Free response and unit-step elevator response
-# ------------------------------------------------------------
+# -----------------------------
+# State-space system
+# -----------------------------
+C = np.eye(4)
+D = np.zeros((4, 1))
+sys = sig.StateSpace(A, B, C, D)
 
 time = np.linspace(0, 200, 1000)
-
-state_labels = [
+labels = [
     r"$\Delta u$, Forward Velocity Perturbation",
     r"$\Delta w$, Vertical Velocity Perturbation",
     r"$\Delta q$, Pitch Rate Perturbation",
-    r"$\Delta \theta$, Pitch Angle Perturbation"
+    r"$\Delta \theta$, Pitch Angle Perturbation",
 ]
+units = ["ft/s", "ft/s", "deg/s", "deg"]
+colors = ["red", "orange", "blue", "green"]
 
-state_units = ["ft/s", "ft/s", "deg/s", "deg"]
-state_colors = ["red", "orange", "blue", "green"]
-
-# ---------- Free response ----------
+# -----------------------------
+# Free response
+# -----------------------------
 u_free = np.zeros_like(time)
-x0_free = np.array([0.0, 0.0, 0.0, 0.1])   # initial pitch-angle perturbation [rad]
-
-tout_free, yout_free, xout_free = sig.lsim(ss_full, U=u_free, T=time, X0=x0_free)
+x0_free = np.array([0.0, 0.0, 0.0, 0.1])  # initial pitch-angle perturbation [rad]
+t_free, y_free, x_free = sig.lsim(sys, U=u_free, T=time, X0=x0_free)
 
 fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-fig.suptitle("Free Response of XC-142A Longitudinal System")
-
+fig.suptitle("Free Response of Fighter-Aircraft Longitudinal System")
 for i, ax in enumerate(axes.flat):
     if i < 2:
-        ax.plot(time, xout_free[:, i], c=state_colors[i], label=state_labels[i])
+        ax.plot(time, x_free[:, i], color=colors[i], linewidth=1.5)
     else:
-        ax.plot(time, np.rad2deg(xout_free[:, i]), c=state_colors[i], label=state_labels[i])
-
+        ax.plot(time, np.rad2deg(x_free[:, i]), color=colors[i], linewidth=1.5)
     ax.axhline(0, color='black', linewidth=0.5)
     ax.set_xlabel("Time [s]")
-    ax.set_ylabel(f"Response [{state_units[i]}]")
-    ax.set_title(state_labels[i])
-    ax.grid(True)
-
+    ax.set_ylabel(f"Response [{units[i]}]")
+    ax.set_title(labels[i])
+    ax.grid(True, alpha=0.4)
 plt.tight_layout()
-plt.show()
+plt.savefig("free_response_fighter.png", dpi=200, bbox_inches="tight")
+plt.close(fig)
 
-# ---------- Step response ----------
-u_step = np.ones_like(time)     # unit step elevator input
+# -----------------------------
+# Step response
+# -----------------------------
+u_step = np.ones_like(time)
 x0_step = np.zeros(4)
-
-tout_step, yout_step, xout_step = sig.lsim(ss_full, U=u_step, T=time, X0=x0_step)
+t_step, y_step, x_step = sig.lsim(sys, U=u_step, T=time, X0=x0_step)
 
 fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-fig.suptitle("Step Response of XC-142A Longitudinal System")
-
+fig.suptitle("Step Response of Fighter-Aircraft Longitudinal System")
 for i, ax in enumerate(axes.flat):
     if i < 2:
-        ax.plot(time, xout_step[:, i], c=state_colors[i], label=state_labels[i])
+        ax.plot(time, x_step[:, i], color=colors[i], linewidth=1.5)
     else:
-        ax.plot(time, np.rad2deg(xout_step[:, i]), c=state_colors[i], label=state_labels[i])
-
+        ax.plot(time, np.rad2deg(x_step[:, i]), color=colors[i], linewidth=1.5)
     ax.axhline(0, color='black', linewidth=0.5)
     ax.set_xlabel("Time [s]")
-    ax.set_ylabel(f"Response [{state_units[i]}]")
-    ax.set_title(state_labels[i])
-    ax.grid(True)
-
+    ax.set_ylabel(f"Response [{units[i]}]")
+    ax.set_title(labels[i])
+    ax.grid(True, alpha=0.4)
 plt.tight_layout()
-plt.show()
+plt.savefig("step_response_fighter.png", dpi=200, bbox_inches="tight")
+plt.close(fig)
 
-# endregion
+# -----------------------------
+# Eigenvalue location plot
+# -----------------------------
+fig = plt.figure(figsize=(8, 6))
+plt.scatter(np.real(sp_eigs), np.imag(sp_eigs), marker='x', s=100, c='black', label='Short-Period')
+plt.scatter(np.real(ph_eigs), np.imag(ph_eigs), marker='o', s=70, facecolors='none', edgecolors='blue', label='Phugoid')
+plt.axhline(0, color='black', linewidth=0.7)
+plt.axvline(0, color='black', linewidth=0.7)
+plt.xlabel("Real Axis")
+plt.ylabel("Imaginary Axis")
+plt.title("Eigenvalue Locations of Fighter-Aircraft Longitudinal System")
+plt.grid(True, alpha=0.4)
+plt.legend()
+plt.tight_layout()
+plt.savefig("eigenvalue_locations_fighter.png", dpi=200, bbox_inches="tight")
+plt.close(fig)
 
-
-# ----------------------
-# region approximations
-# ----------------------
-
-# Short-period approximation 
-Zalpha = -568.776
-Malpha = -4.824
-Malpha_dot = -0.474
-
+# -----------------------------
+# Reduced-order approximations
+# -----------------------------
 A_sp = np.array([
-    [Zalpha / u0, 1.0],
-    [Malpha + Malpha_dot * (Zalpha / u0), Mq + Malpha_dot]
+    [Z_w, u0],
+    [M_w + M_w_dot * Z_w, M_q + M_w_dot * u0]
 ], dtype=float)
 
-# phugoid approximation 
-A_lp = np.array([
-    [Xu, -g],
-    [-Zu / u0, 0.0]
+A_ph = np.array([
+    [X_u, -g],
+    [-Z_u / u0, 0.0]
 ], dtype=float)
 
-B_approx = np.zeros((2, 1))
-C_approx = np.array([[1.0, 0.0]])
-D_approx = np.array([[0.0]])
-
-print("\nShort-Period Approximation A matrix:")
+print("\nA_sp:")
 print(A_sp)
+print("eig(A_sp):", np.linalg.eigvals(A_sp))
 
-print("\nPhugoid Approximation A matrix:")
-print(A_lp)
-
-spapprox_ss = sig.StateSpace(A_sp, B_approx, C_approx, D_approx)
-lpapprox_ss = sig.StateSpace(A_lp, B_approx, C_approx, D_approx)
-
-approx_sp_eigs, _ = np.linalg.eig(A_sp)
-approx_lp_eigs, _ = np.linalg.eig(A_lp)
-
-approx_sp_coeffs, approx_sp_natfreq, approx_sp_dampratio, approx_sp_dampfreq, approx_sp_timeconst = modal_properties(approx_sp_eigs)
-approx_lp_coeffs, approx_lp_natfreq, approx_lp_dampratio, approx_lp_dampfreq, approx_lp_timeconst = modal_properties(approx_lp_eigs)
-
-# endregion
-
-
-# ---------------
-# region outputs
-# ---------------
-
-print("\n============================================================")
-print("EXACT FOURTH-ORDER LONGITUDINAL SYSTEM")
-print("============================================================")
-print(f"Exact eigenvalues: {eigvals}")
-
-print("\nShort-Period Mode:")
-print(f"  Eigenvalues       : {sp_eigs}")
-print(f"  Characteristic eq.: {sp_coeffs}")
-print(f"  Natural frequency : {sp_natfreq:.4f} rad/s")
-print(f"  Damping ratio     : {sp_dampratio:.4f}")
-print(f"  Damped frequency  : {sp_dampfreq:.4f} rad/s")
-print(f"  Time constant     : {sp_timeconst:.4f} s")
-
-print("\nPhugoid Mode:")
-print(f"  Eigenvalues       : {lp_eigs}")
-print(f"  Characteristic eq.: {lp_coeffs}")
-print(f"  Natural frequency : {lp_natfreq:.4f} rad/s")
-print(f"  Damping ratio     : {lp_dampratio:.4f}")
-print(f"  Damped frequency  : {lp_dampfreq:.4f} rad/s")
-print(f"  Time constant     : {lp_timeconst:.4f} s")
-
-print("\n============================================================")
-print("REDUCED-ORDER APPROXIMATIONS")
-print("============================================================")
-
-print("\nShort-Period Approximation:")
-print(f"  Eigenvalues       : {approx_sp_eigs}")
-print(f"  Characteristic eq.: {approx_sp_coeffs}")
-print(f"  Natural frequency : {approx_sp_natfreq:.4f} rad/s")
-print(f"  Damping ratio     : {approx_sp_dampratio:.4f}")
-print(f"  Damped frequency  : {approx_sp_dampfreq:.4f} rad/s")
-print(f"  Time constant     : {approx_sp_timeconst:.4f} s")
-
-print("\nPhugoid Approximation:")
-print(f"  Eigenvalues       : {approx_lp_eigs}")
-print(f"  Characteristic eq.: {approx_lp_coeffs}")
-print(f"  Natural frequency : {approx_lp_natfreq:.4f} rad/s")
-print(f"  Damping ratio     : {approx_lp_dampratio:.4f}")
-print(f"  Damped frequency  : {approx_lp_dampfreq:.4f} rad/s")
-print(f"  Time constant     : {approx_lp_timeconst:.4f} s")
-
-print("\n============================================================")
-print("COMPARISON")
-print("============================================================")
-
-print("\nShort-Period Mode Comparison:")
-print(f"  Exact Eigenvalues              : {sp_eigs}")
-print(f"  Approximate Eigenvalues        : {approx_sp_eigs}")
-print(f"  Exact Natural Frequency        : {sp_natfreq:.4f} rad/s")
-print(f"  Approximate Natural Frequency  : {approx_sp_natfreq:.4f} rad/s")
-print(f"  Exact Damping Ratio            : {sp_dampratio:.4f}")
-print(f"  Approximate Damping Ratio      : {approx_sp_dampratio:.4f}")
-print(f"  Exact Damped Frequency         : {sp_dampfreq:.4f} rad/s")
-print(f"  Approximate Damped Frequency   : {approx_sp_dampfreq:.4f} rad/s")
-print(f"  Exact Time Constant            : {sp_timeconst:.4f} s")
-print(f"  Approximate Time Constant      : {approx_sp_timeconst:.4f} s")
-
-print("\nPhugoid Mode Comparison:")
-print(f"  Exact Eigenvalues              : {lp_eigs}")
-print(f"  Approximate Eigenvalues        : {approx_lp_eigs}")
-print(f"  Exact Natural Frequency        : {lp_natfreq:.4f} rad/s")
-print(f"  Approximate Natural Frequency  : {approx_lp_natfreq:.4f} rad/s")
-print(f"  Exact Damping Ratio            : {lp_dampratio:.4f}")
-print(f"  Approximate Damping Ratio      : {approx_lp_dampratio:.4f}")
-print(f"  Exact Damped Frequency         : {lp_dampfreq:.4f} rad/s")
-print(f"  Approximate Damped Frequency   : {approx_lp_dampfreq:.4f} rad/s")
-print(f"  Exact Time Constant            : {lp_timeconst:.4f} s")
-print(f"  Approximate Time Constant      : {approx_lp_timeconst:.4f} s")
-
-# endregion
+print("\nA_ph:")
+print(A_ph)
+print("eig(A_ph):", np.linalg.eigvals(A_ph))
